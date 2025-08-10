@@ -17,7 +17,13 @@
   #hud{position:absolute;top:10px;left:0;width:100%;max-width:500px;display:flex;justify-content:space-between;align-items:center;padding:0 10px;box-sizing:border-box;z-index:10;}
   .info{background:rgba(255,255,255,0.03);padding:8px 12px;border-radius:8px;font-size:14px;backdrop-filter:blur(2px);}
   #livesContainer { display: flex; gap: 5px; align-items: center; }
-  .life-icon { width: 16px; height: 16px; background-color: #00c3ff; clip-path: polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%); }
+  .life-icon { 
+    width: 18px;
+    height: 18px;
+    background-color: #ff3366;
+    clip-path: path('M10,6 Q10,0 15,0 T20,6 Q20,10 15,14 Q10,10 10,6');
+    filter: drop-shadow(0 0 2px #ff0066);
+  }
   #loadingText{opacity:0.95;margin-top:12px;font-size:14px}
   #levelInfo { font-size: 13px; opacity: 0.8; }
   
@@ -70,7 +76,7 @@
     }
     
     #levelInfo {
-      display: none; /* Hide on mobile to save space */
+      display: none;
     }
   }
 </style>
@@ -93,6 +99,7 @@
           <p style="margin:6px 0;">Arrow ← → to move • Auto-fire on mobile<br/>3 lives • Enemies shoot back</p>
           <div>
             <button id="startBtn">Start Game</button>
+            <button id="soundToggle" style="background:rgba(255,255,255,0.1);color:white;">🔊 Sound On</button>
           </div>
         </div>
       </div>
@@ -119,7 +126,7 @@ const W = 500, H = 600;
 const PLAYER_SPEED = 7;
 const BULLET_SPEED = 12;
 const MAX_LIVES = 3;
-const LEVEL_THRESHOLDS = [500, 1000, 1500, 2000]; // Score thresholds for level ups
+const LEVEL_THRESHOLDS = [500, 1000, 1500, 2000];
 
 // Game Elements
 const canvas = document.getElementById('game');
@@ -127,6 +134,7 @@ const ctx = canvas.getContext('2d');
 const loadingPanel = document.getElementById('loadingPanel');
 const startPanel = document.getElementById('startPanel');
 const startBtn = document.getElementById('startBtn');
+const soundToggle = document.getElementById('soundToggle');
 const scoreBox = document.getElementById('scoreBox');
 const livesContainer = document.getElementById('livesContainer');
 const levelInfo = document.getElementById('levelInfo');
@@ -134,6 +142,57 @@ const levelInfo = document.getElementById('levelInfo');
 // Mobile controls
 const leftBtn = document.getElementById('leftBtn');
 const rightBtn = document.getElementById('rightBtn');
+
+// Sound effects
+const sounds = {
+  shoot: new Audio(),
+  enemyShoot: new Audio(),
+  explosionSmall: new Audio(),
+  explosionLarge: new Audio(),
+  playerHit: new Audio(),
+  gameOver: new Audio(),
+  levelUp: new Audio(),
+  background: new Audio()
+};
+
+// Initialize sounds with data URIs (base64 encoded short audio clips)
+function initSounds() {
+  // Player shoot sound - laser blast
+  sounds.shoot.src = 'data:audio/wav;base64,UklGRl9vT19XQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YU...'; // Shortened for brevity
+  sounds.shoot.volume = 0.3;
+  
+  // Enemy shoot sound - different laser
+  sounds.enemyShoot.src = 'data:audio/wav;base64,UklGRl9vT19XQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YU...';
+  sounds.enemyShoot.volume = 0.2;
+  
+  // Small explosion
+  sounds.explosionSmall.src = 'data:audio/wav;base64,UklGRl9vT19XQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YU...';
+  sounds.explosionSmall.volume = 0.4;
+  
+  // Large explosion (for boss)
+  sounds.explosionLarge.src = 'data:audio/wav;base64,UklGRl9vT19XQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YU...';
+  sounds.explosionLarge.volume = 0.5;
+  
+  // Player hit sound
+  sounds.playerHit.src = 'data:audio/wav;base64,UklGRl9vT19XQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YU...';
+  sounds.playerHit.volume = 0.6;
+  
+  // Game over sound
+  sounds.gameOver.src = 'data:audio/wav;base64,UklGRl9vT19XQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YU...';
+  sounds.gameOver.volume = 0.7;
+  
+  // Level up sound
+  sounds.levelUp.src = 'data:audio/wav;base64,UklGRl9vT19XQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YU...';
+  sounds.levelUp.volume = 0.5;
+  
+  // Background music loop
+  sounds.background.src = 'data:audio/mpeg;base64,SUQzBAAAAAABEVRYWFgAAAAtAAADY29tbWVudABCaWdTb3VuZEJhbmsuY29tIC8gTGFTb25vdGhlcXVlLm9yZwBURU5DAAAAHQAAA1N3aXRjaCBQbHVzIMKpIE5DSCBTb2Z0d2FyZQBUSVQyAAAABgAAAzIyMzUAVFNTRQAAAA8AAANMYXZmNTcuODMuMTAwAAAAAAAAAAAAAAD/80DEAAAAA0gAAAAATEFNRTMuMTAwVVVVVVVVVVVVVUxBTUUzLjEwMFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVf/zQsRbAAADSAAAAABVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVf/zQMSkAAADSAAAAABVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV';
+  sounds.background.loop = true;
+  sounds.background.volume = 0.3;
+}
+
+// Sound state
+let soundEnabled = true;
 
 // Game State
 let keys = {};
@@ -159,13 +218,13 @@ let shootCooldown = 0;
 let running = false;
 let gameOver = false;
 let level = 1;
-let enemySpawnRate = 0.01; // Starts slow
-let enemySpeed = 1.5; // Starts slow
-let enemyShootInterval = 120; // Starts slow firing
+let enemySpawnRate = 0.01;
+let enemySpeed = 1.5;
+let enemyShootInterval = 120;
 let isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-let autoFire = isMobile; // Auto-fire enabled for mobile
+let autoFire = isMobile;
 
-// Cool spaceship design (modern fighter jet style)
+// Enhanced player spaceship design
 const playerSVG = `data:image/svg+xml;charset=utf-8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 50 50'>
   <defs>
     <linearGradient id="shipGrad" x1="0%" y1="0%" x2="100%" y2="0%">
@@ -180,28 +239,66 @@ const playerSVG = `data:image/svg+xml;charset=utf-8,<svg xmlns='http://www.w3.or
   <path d='M25 5 L35 20 L45 22 L35 25 L25 45 L15 25 L5 22 L15 20 Z' fill='url(%23shipGrad)' stroke='%2300a2e0' stroke-width='1' filter='url(%23glow)'/>
   <ellipse cx='25' cy='20' rx='8' ry='5' fill='rgba(0,10,20,0.8)'/>
   <rect x='22' y='15' width='6' height='2' fill='%2300a2e0' rx='1'/>
+  <circle cx='25' cy='20' r='2' fill='%2300e0ff' filter='url(%23glow)'/>
 </svg>`;
 
-// Enemy designs (3 types)
+// Enhanced enemy designs (3 types)
 const enemySVGs = [
-  // Type 1 - Small fighter
+  // Type 1 - Alien Fighter (more detailed)
   `data:image/svg+xml;charset=utf-8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'>
-    <path d='M20 5 L25 15 L35 18 L25 20 L20 35 L15 20 L5 18 L15 15 Z' fill='%23ff6b6b' stroke='%23cc0000' stroke-width='1'/>
+    <defs>
+      <filter id="alienGlow">
+        <feGaussianBlur stdDeviation="1.5" result="blur"/>
+        <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+      </filter>
+    </defs>
+    <path d='M20 5 L25 15 L35 18 L25 20 L20 35 L15 20 L5 18 L15 15 Z' fill='%23ff3366' stroke='%23cc0000' stroke-width='1' filter='url(%23alienGlow)'/>
     <circle cx='20' cy='15' r='5' fill='rgba(50,0,0,0.7)'/>
+    <circle cx='18' cy='13' r='1.5' fill='%23ff9999'/>
+    <circle cx='22' cy='13' r='1.5' fill='%23ff9999'/>
+    <path d='M18 17 Q20 19 22 17' stroke='%23ff9999' fill='none' stroke-width='1'/>
   </svg>`,
   
-  // Type 2 - Saucer
+  // Type 2 - Advanced Saucer
   `data:image/svg+xml;charset=utf-8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'>
-    <ellipse cx='20' cy='15' rx='15' ry='8' fill='%23b76bff' stroke='%238f4ed1' stroke-width='1'/>
+    <defs>
+      <filter id="saucerGlow">
+        <feGaussianBlur stdDeviation="1.5" result="blur"/>
+        <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+      </filter>
+      <radialGradient id="saucerGrad" cx="50%" cy="50%" r="50%" fx="50%" fy="50%">
+        <stop offset="0%" stop-color="%23b76bff"/>
+        <stop offset="100%" stop-color="%238f4ed1"/>
+      </radialGradient>
+    </defs>
+    <ellipse cx='20' cy='15' rx='15' ry='8' fill='url(%23saucerGrad)' stroke='%238f4ed1' stroke-width='1' filter='url(%23saucerGlow)'/>
     <ellipse cx='20' cy='15' rx='10' ry='4' fill='rgba(20,0,40,0.7)'/>
-    <rect x='12' y='25' width='4' height='2' fill='%238f4ed1'/>
-    <rect x='24' y='25' width='4' height='2' fill='%238f4ed1'/>
+    <circle cx='20' cy='15' r='3' fill='%23d9b3ff'/>
+    <rect x='12' y='25' width='4' height='2' fill='%23d9b3ff'/>
+    <rect x='24' y='25' width='4' height='2' fill='%23d9b3ff'/>
+    <circle cx='14' cy='12' r='1' fill='%23d9b3ff'/>
+    <circle cx='26' cy='12' r='1' fill='%23d9b3ff'/>
   </svg>`,
   
-  // Type 3 - Bomber
+  // Type 3 - Boss Ship
   `data:image/svg+xml;charset=utf-8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 50 30'>
-    <path d='M5 15 L15 5 L45 10 L35 20 L45 25 L15 25 Z' fill='%23ffaa33' stroke='%23cc7700' stroke-width='1'/>
+    <defs>
+      <filter id="bossGlow">
+        <feGaussianBlur stdDeviation="1.5" result="blur"/>
+        <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+      </filter>
+      <linearGradient id="bossGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+        <stop offset="0%" stop-color="%23ffaa33"/>
+        <stop offset="50%" stop-color="%23ff7700"/>
+        <stop offset="100%" stop-color="%23ffaa33"/>
+      </linearGradient>
+    </defs>
+    <path d='M5 15 L15 5 L45 10 L35 20 L45 25 L15 25 Z' fill='url(%23bossGrad)' stroke='%23cc7700' stroke-width='1' filter='url(%23bossGlow)'/>
     <rect x='25' y='12' width='15' height='6' fill='rgba(50,30,0,0.7)'/>
+    <circle cx='30' cy='15' r='2' fill='%23ffcc00'/>
+    <circle cx='35' cy='15' r='2' fill='%23ffcc00'/>
+    <rect x='10' y='10' width='5' height='2' fill='%23ffcc00' rx='1'/>
+    <rect x='10' y='18' width='5' height='2' fill='%23ffcc00' rx='1'/>
   </svg>`
 ];
 
@@ -217,6 +314,7 @@ const enemyImgs = enemySVGs.map(svg => {
 
 // Initialize game
 function init() {
+  initSounds();
   createStars();
   resetGame();
   
@@ -239,6 +337,7 @@ function init() {
   }, { passive: false });
   
   startBtn.addEventListener('click', startGame);
+  soundToggle.addEventListener('click', toggleSound);
   
   // Start game loop
   requestAnimationFrame(gameLoop);
@@ -253,12 +352,28 @@ function init() {
   });
 }
 
+// Toggle sound on/off
+function toggleSound() {
+  soundEnabled = !soundEnabled;
+  soundToggle.textContent = soundEnabled ? '🔊 Sound On' : '🔇 Sound Off';
+  sounds.background.muted = !soundEnabled;
+}
+
+// Play sound effect if enabled
+function playSound(sound) {
+  if (soundEnabled && sounds[sound]) {
+    sounds[sound].currentTime = 0;
+    sounds[sound].play().catch(e => console.log('Sound play failed:', e));
+  }
+}
+
 // Update difficulty based on score
 function updateDifficulty() {
   const newLevel = LEVEL_THRESHOLDS.findIndex(threshold => score < threshold) + 1;
   if (newLevel !== level) {
     level = newLevel;
     levelInfo.textContent = `Level: ${level} (${getDifficultyName(level)})`;
+    playSound('levelUp');
     
     // Adjust game parameters based on level
     enemySpawnRate = 0.01 + (level * 0.005);
@@ -272,14 +387,15 @@ function getDifficultyName(level) {
   return names[Math.min(level - 1, names.length - 1)];
 }
 
-// Create visual life indicators
+// Create visual life indicators (hearts)
 function updateLivesDisplay() {
   livesContainer.innerHTML = '';
   for (let i = 0; i < player.lives; i++) {
     const lifeIcon = document.createElement('div');
     lifeIcon.className = 'life-icon';
     if (player.lives === 1) {
-      lifeIcon.style.backgroundColor = '#ff6b6b'; // Red when last life
+      lifeIcon.style.backgroundColor = '#ff0066'; // More intense red when last life
+      lifeIcon.style.filter = 'drop-shadow(0 0 4px #ff0066)';
     }
     livesContainer.appendChild(lifeIcon);
   }
@@ -331,6 +447,10 @@ function startGame() {
   startPanel.style.display = 'none';
   resetGame();
   running = true;
+  if (soundEnabled) {
+    sounds.background.currentTime = 0;
+    sounds.background.play().catch(e => console.log('Background music play failed:', e));
+  }
 }
 
 // Main game loop
@@ -346,12 +466,12 @@ function update() {
   
   updateDifficulty();
 
-  // Move player - supports both keyboard and touch controls
+  // Move player
   if (keys['ArrowLeft'] || touchControls.left) player.x -= player.speed;
   if (keys['ArrowRight'] || touchControls.right) player.x += player.speed;
   player.x = Math.max(0, Math.min(W - player.w, player.x));
 
-  // Player shooting - automatic for mobile, space bar for desktop
+  // Player shooting
   if (autoFire || keys['Space']) {
     if (shootCooldown <= 0) {
       bullets.push({
@@ -361,7 +481,7 @@ function update() {
         h: 15,
         speed: BULLET_SPEED
       });
-      // Increased cooldown for mobile to space out bullets
+      playSound('shoot');
       shootCooldown = isMobile ? 20 : 10;
     }
   }
@@ -376,7 +496,7 @@ function update() {
   // Spawn enemies
   if (Math.random() < enemySpawnRate) {
     const type = Math.floor(Math.random() * enemyImgs.length);
-    const size = type === 2 ? 40 : 30; // Bomber is bigger
+    const size = type === 2 ? 40 : 30;
     enemies.push({
       x: Math.random() * (W - size),
       y: -size,
@@ -403,6 +523,7 @@ function update() {
         h: 15,
         speed: BULLET_SPEED * 0.6
       });
+      playSound('enemyShoot');
       enemy.shootTimer = enemyShootInterval;
     }
     
@@ -440,11 +561,20 @@ function checkCollisions() {
           x: enemy.x + enemy.w/2,
           y: enemy.y + enemy.h/2,
           r: 0,
-          maxR: enemy.type === 2 ? 25 : 20 // Bigger explosion for bombers
+          maxR: enemy.type === 2 ? 30 : 25,
+          color: enemy.type === 0 ? '#ff3366' : enemy.type === 1 ? '#b76bff' : '#ffaa33'
         });
+        
+        // Play appropriate explosion sound
+        if (enemy.type === 2) {
+          playSound('explosionLarge');
+        } else {
+          playSound('explosionSmall');
+        }
+        
         enemies.splice(i, 1);
         bullets.splice(j, 1);
-        score += (enemy.type + 1) * 10; // More points for harder enemies
+        score += (enemy.type + 1) * 10;
         scoreBox.textContent = score;
         break;
       }
@@ -459,8 +589,10 @@ function checkCollisions() {
         x: player.x + player.w/2,
         y: player.y + player.h/2,
         r: 0,
-        maxR: 30
+        maxR: 30,
+        color: '#ff3366'
       });
+      playSound('playerHit');
       enemyBullets.splice(i, 1);
       player.lives--;
       updateLivesDisplay();
@@ -468,6 +600,8 @@ function checkCollisions() {
       if (player.lives <= 0) {
         gameOver = true;
         running = false;
+        playSound('gameOver');
+        sounds.background.pause();
         setTimeout(() => {
           startPanel.style.display = 'flex';
           startPanel.querySelector('h2').textContent = 'GAME OVER';
@@ -526,7 +660,7 @@ function render() {
   }
 
   // Draw enemy bullets
-  ctx.fillStyle = '#ff6b6b';
+  ctx.fillStyle = '#ff3366';
   for (let bullet of enemyBullets) {
     ctx.beginPath();
     ctx.roundRect(bullet.x, bullet.y, bullet.w, bullet.h, 2);
@@ -539,8 +673,8 @@ function render() {
       explosion.x, explosion.y, 0,
       explosion.x, explosion.y, explosion.r
     );
-    gradient.addColorStop(0, `rgba(255, 200, 80, ${1 - explosion.r/explosion.maxR})`);
-    gradient.addColorStop(0.5, `rgba(255, 90, 40, ${0.7 - explosion.r/explosion.maxR})`);
+    gradient.addColorStop(0, explosion.color || `rgba(255, 200, 80, ${1 - explosion.r/explosion.maxR})`);
+    gradient.addColorStop(0.5, explosion.color ? `rgba(255, 90, 40, ${0.7 - explosion.r/explosion.maxR})` : `rgba(255, 90, 40, ${0.7 - explosion.r/explosion.maxR})`);
     gradient.addColorStop(1, 'rgba(20, 0, 0, 0)');
     ctx.fillStyle = gradient;
     ctx.beginPath();
@@ -577,11 +711,17 @@ function drawPlayer(x, y, w, h) {
   ctx.beginPath();
   ctx.ellipse(x + w/2, y + h*0.35, w*0.2, h*0.15, 0, 0, Math.PI*2);
   ctx.fill();
+  
+  // Glowing center
+  ctx.fillStyle = '#00e0ff';
+  ctx.beginPath();
+  ctx.arc(x + w/2, y + h*0.35, 4, 0, Math.PI*2);
+  ctx.fill();
 }
 
 function drawEnemy(x, y, w, h, type) {
-  if (type === 0) { // Fighter
-    ctx.fillStyle = '#ff6b6b';
+  if (type === 0) { // Alien Fighter
+    ctx.fillStyle = '#ff3366';
     ctx.beginPath();
     ctx.moveTo(x + w/2, y);
     ctx.lineTo(x + w*0.7, y + h*0.5);
@@ -593,6 +733,20 @@ function drawEnemy(x, y, w, h, type) {
     ctx.lineTo(x + w*0.3, y + h*0.5);
     ctx.closePath();
     ctx.fill();
+    
+    // Eyes
+    ctx.fillStyle = '#ff9999';
+    ctx.beginPath();
+    ctx.arc(x + w*0.4, y + h*0.3, 3, 0, Math.PI*2);
+    ctx.arc(x + w*0.6, y + h*0.3, 3, 0, Math.PI*2);
+    ctx.fill();
+    
+    // Mouth
+    ctx.strokeStyle = '#ff9999';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(x + w/2, y + h*0.4, 2, 0, Math.PI);
+    ctx.stroke();
   } 
   else if (type === 1) { // Saucer
     ctx.fillStyle = '#b76bff';
@@ -603,8 +757,15 @@ function drawEnemy(x, y, w, h, type) {
     ctx.beginPath();
     ctx.ellipse(x + w/2, y + h*0.4, w*0.3, h*0.15, 0, 0, Math.PI*2);
     ctx.fill();
+    
+    // Lights
+    ctx.fillStyle = '#d9b3ff';
+    ctx.beginPath();
+    ctx.arc(x + w*0.3, y + h*0.3, 2, 0, Math.PI*2);
+    ctx.arc(x + w*0.7, y + h*0.3, 2, 0, Math.PI*2);
+    ctx.fill();
   }
-  else { // Bomber
+  else { // Boss Ship
     ctx.fillStyle = '#ffaa33';
     ctx.beginPath();
     ctx.moveTo(x + w*0.1, y + h*0.5);
@@ -614,6 +775,13 @@ function drawEnemy(x, y, w, h, type) {
     ctx.lineTo(x + w*0.9, y + h);
     ctx.lineTo(x + w*0.3, y + h*0.8);
     ctx.closePath();
+    ctx.fill();
+    
+    // Engine glow
+    ctx.fillStyle = '#ffcc00';
+    ctx.beginPath();
+    ctx.arc(x + w*0.2, y + h*0.5, 4, 0, Math.PI*2);
+    ctx.arc(x + w*0.8, y + h*0.5, 4, 0, Math.PI*2);
     ctx.fill();
   }
 }
