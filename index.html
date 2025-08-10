@@ -361,7 +361,8 @@ function update() {
         h: 15,
         speed: BULLET_SPEED
       });
-      shootCooldown = 10;
+      // Increased cooldown for mobile to space out bullets
+      shootCooldown = isMobile ? 20 : 10;
     }
   }
   if (shootCooldown > 0) shootCooldown--;
